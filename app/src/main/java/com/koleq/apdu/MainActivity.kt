@@ -1,7 +1,6 @@
 package com.koleq.apdu
 
 import android.app.AlertDialog
-import android.content.Context
 import android.nfc.NfcAdapter
 import android.nfc.Tag
 import android.nfc.tech.IsoDep
@@ -17,9 +16,13 @@ import android.widget.LinearLayout
 import android.widget.Spinner
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.edit
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
+
+private const val PREFS_NAME = "ApduPrefs"
+private const val PREFS_KEY = "saved_presets"
 
 class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
 
@@ -41,9 +44,6 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
     private val presetList = mutableListOf<ApduPreset>()
     private lateinit var spinnerAdapter: ArrayAdapter<ApduPreset>
     private var isSpinnerInitialized = false
-
-    private val PREFS_NAME = "ApduPrefs"
-    private val PREFS_KEY = "saved_presets"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -158,7 +158,7 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
             isoDep.timeout = 5000
             hasCardSession = true // Flag we are live
 
-            updateStatus("CARD CONNECTED (IsoDep)")
+            updateStatus(getString(R.string.status_card_connected_isodep))
             appendLog("=== Card Tapped & Connected ===\n")
 
             val hist = isoDep.historicalBytes
@@ -175,7 +175,7 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
         } catch (e: Exception) {
             hasCardSession = false
             appendLog("Connection Error: ${e.message}\n")
-            updateStatus("Connection Failed")
+            updateStatus(getString(R.string.status_connection_failed))
         }
     }
 
@@ -184,7 +184,7 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
 
         if (!hasCardSession || isoDep == null) {
             appendLog("ERROR: No card connected. Tap card to phone first!\n")
-            updateStatus("Status: No card")
+            updateStatus(getString(R.string.status_no_card))
             return
         }
 
@@ -193,7 +193,7 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
                 appendLog(">> $hexApdu\n")
                 val response = try {
                     isoDep.transceive(hexToBytes(hexApdu))
-                } catch (e: IOException) {
+                } catch (_: IOException) { // the underscore can be a variable
                     if (!isoDep.isConnected) {
                         isoDep.connect()
                     }
@@ -231,7 +231,7 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
                 hasCardSession = false
                 currentIsoDep = null
                 appendLog("IO Error: ${e.message} (Card removed)\n")
-                updateStatus("Status: No card")
+                updateStatus(getString(R.string.status_no_card))
             } catch (e: Exception) {
                 appendLog("Error: ${e.message}\n")
             }
@@ -244,7 +244,7 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
             currentIsoDep?.close()
         } catch (_: Exception) {}
         currentIsoDep = null
-        updateStatus("CARD DISCONNECTED")
+        updateStatus(getString(R.string.status_card_disconnected))
     }
 
     private fun showAddPresetDialog() {
@@ -283,7 +283,6 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
         builder.show()
     }
 
-    // ISSUE 2 FIX: Save presets to SharedPreferences using simple JSON serialization
     private fun savePresets() {
         val jsonArray = JSONArray()
         for (preset in presetList) {
@@ -292,14 +291,16 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
             obj.put("hex", preset.hex)
             jsonArray.put(obj)
         }
-        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        prefs.edit().putString(PREFS_KEY, jsonArray.toString()).apply()
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+
+        prefs.edit {
+            putString(PREFS_KEY, jsonArray.toString())
+        }
     }
 
-    // ISSUE 2 FIX: Load saved presets on app startup
     private fun loadPresets() {
         presetList.clear()
-        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         val jsonString = prefs.getString(PREFS_KEY, null)
 
         if (jsonString != null) {
@@ -314,8 +315,16 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
 
         // Fallback defaults if storage was empty
         if (presetList.isEmpty()) {
-            presetList.add(ApduPreset("Select Applet", "00A404000AF06B6F6C65710000000100"))
-            presetList.add(ApduPreset("Test INS 0x10", "001000000C"))
+            presetList.add(ApduPreset("new", ""))
+            presetList.add(ApduPreset("select_helloApplet", "00A404000AF06B6F6C65710000000100"))
+            presetList.add(ApduPreset("hello", "0010000000"))
+            presetList.add(ApduPreset("cmd_ping", "001100000470696e67"))
+            presetList.add(ApduPreset("cmd_free", "001100000466726565"))
+            presetList.add(ApduPreset("counter_add", "0012010000"))
+            presetList.add(ApduPreset("counter_sub", "0012020000"))
+            presetList.add(ApduPreset("counter_show", "0012030000"))
+            presetList.add(ApduPreset("counter_reset", "0012040000"))
+            presetList.add(ApduPreset("echo", "00130000145468697320697320612074657874206563686f21"))
         }
     }
 
@@ -327,7 +336,7 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
 
     private fun updateStatus(status: String) {
         mainHandler.post {
-            statusTextView.text = "Status: $status"
+            statusTextView.text = status
         }
     }
 

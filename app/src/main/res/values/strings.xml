@@ -1,3 +1,7 @@
 <resources>
     <string name="app_name">koleqAPDU</string>
+    <string name="status_no_card">Status: No card</string>
+    <string name="status_card_disconnected">Status: CARD DISCONNECTED</string>
+    <string name="status_connection_failed">Status: Connection Failed</string>
+    <string name="status_card_connected_isodep">CARD CONNECTED (IsoDep)</string>
 </resources>
