@@ -223,8 +223,7 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
                     }
                     val hexText = strText.toByteArray(US_ASCII)
                     apduCommand = bytesToHex(
-                        hexToBytes(command) +
-                                byteArrayOf(hexText.size.toByte()) + hexText
+                        hexToBytes(command) + byteArrayOf(hexText.size.toByte()) + hexText
                     )
                 }
             } else {
@@ -252,7 +251,7 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
 
                     if (dataBytes.isNotEmpty()) {
                         // Match Python 'free' command check (Hex: 001100000466726565)
-                        if (hexApdu.equals("001100000466726565", ignoreCase = true) && dataBytes.size >= 4) {
+                        if (apduCommand.equals("001100000466726565", ignoreCase = true) && dataBytes.size >= 4) {
                             val freeEEPROM = ((dataBytes[0].toInt() and 0xFF) shl 8) or (dataBytes[1].toInt() and 0xFF)
                             val freeRAM = ((dataBytes[2].toInt() and 0xFF) shl 8) or (dataBytes[3].toInt() and 0xFF)
                             val freeEEPROMStr = if (freeEEPROM == 32767) ">= 32767 B" else "$freeEEPROM B"
