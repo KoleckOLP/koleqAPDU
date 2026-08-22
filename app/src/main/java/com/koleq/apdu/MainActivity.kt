@@ -20,6 +20,7 @@ import androidx.core.content.edit
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
+import kotlin.text.Charsets.US_ASCII
 
 private const val PREFS_NAME = "ApduPrefs"
 private const val PREFS_KEY = "saved_presets"
@@ -107,7 +108,7 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
         }
 
         sendBtn.setOnClickListener {
-            val hex = apduInput.text.toString().trim().replace(" ", "")
+            val hex = apduInput.text.toString().trim() //.replace(" ", "")
             if (hex.isNotEmpty()) {
                 sendApduRealtime(hex)
             }
@@ -164,7 +165,7 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
             val hist = isoDep.historicalBytes
             if (hist != null && hist.isNotEmpty()) {
                 if (isPrintableAscii(hist)) {
-                    val histText = String(hist, Charsets.US_ASCII)
+                    val histText = String(hist, US_ASCII)
                     appendLog("ATS: $histText\n")
                 } else {
                     appendLog("ATS: ${bytesToHex(hist)}\n")
@@ -179,6 +180,13 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
         }
     }
 
+    val commandHeaders = mapOf(
+        "cmd" to "00110000", // INS 0x11
+        "counter_add" to "001201", // INS 0x12
+        "counter_sub" to "001202", // INS 0x12
+        "echo" to "00130000" // INS 0x13
+    )
+
     private fun sendApduRealtime(hexApdu: String) {
         val isoDep = currentIsoDep
 
@@ -189,17 +197,53 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
         }
 
         Thread {
-            try {
-                appendLog(">> $hexApdu\n")
+            appendLog("$hexApdu\n") // print the command to interpret
+            var apduCommand = ""
+
+            // interpreting nested commands
+            if (hexApdu.contains("=")) {
+                val hexSplit = hexApdu.split("=", limit = 2) // split command by =
+                val command: String = commandHeaders[hexSplit[0]]!! // fill command from commandHeaders
+                if (command.startsWith("0012") && hexSplit[1] != "") {
+                    var number: Int? = null
+                    try {
+                        number = hexSplit[1].replace(" ", "").toInt()
+                    } catch (_: NumberFormatException) {
+                        appendLog("Err: Yeah bro numbers, learn them.\n")
+                    }
+                    if (number != null && number in -128..127) {
+                        apduCommand = command + String.format("%02X", number and 0xFF)
+                    }
+                } else {
+                    var strText = hexSplit[1]
+                    if ((strText.startsWith("\"") && strText.endsWith("\"")) ||
+                        (strText.startsWith("'") && strText.endsWith("'"))
+                    ) {
+                        strText = strText.substring(1, strText.length - 1)
+                    }
+                    val hexText = strText.toByteArray(US_ASCII)
+                    apduCommand = bytesToHex(
+                        hexToBytes(command) +
+                                byteArrayOf(hexText.size.toByte()) + hexText
+                    )
+                }
+            } else {
+                apduCommand = hexApdu
+            }
+
+            if (apduCommand != "") {
+                appendLog(">> $apduCommand\n")
+
                 val response = try {
-                    isoDep.transceive(hexToBytes(hexApdu))
-                } catch (_: IOException) { // the underscore can be a variable
+                    isoDep.transceive(hexToBytes(apduCommand))
+                } catch (_: IOException) {
                     if (!isoDep.isConnected) {
                         isoDep.connect()
                     }
-                    isoDep.transceive(hexToBytes(hexApdu))
+                    isoDep.transceive(hexToBytes(apduCommand))
                 }
 
+                // APDU RESPONSE
                 if (response.size >= 2) {
                     val dataBytes = response.copyOfRange(0, response.size - 2)
                     val sw1 = response[response.size - 2]
@@ -214,7 +258,7 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
                             val freeEEPROMStr = if (freeEEPROM == 32767) ">= 32767 B" else "$freeEEPROM B"
                             appendLog("<< free EEPROM: $freeEEPROMStr, free RAM: $freeRAM B | SW: $swHex\n\n")
                         } else if (isPrintableAscii(dataBytes)) {
-                            val textData = String(dataBytes, Charsets.US_ASCII)
+                            val textData = String(dataBytes, US_ASCII)
                             appendLog("<< $textData | SW: $swHex\n\n")
                         } else {
                             val dataHex = bytesToHex(dataBytes)
@@ -226,14 +270,6 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
                 } else {
                     appendLog("<< ${bytesToHex(response)}\n\n")
                 }
-
-            } catch (e: IOException) {
-                hasCardSession = false
-                currentIsoDep = null
-                appendLog("IO Error: ${e.message} (Card removed)\n")
-                updateStatus(getString(R.string.status_no_card))
-            } catch (e: Exception) {
-                appendLog("Error: ${e.message}\n")
             }
         }.start()
     }
@@ -313,18 +349,23 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
             } catch (_: Exception) {}
         }
 
-        // Fallback defaults if storage was empty
+        // Fallback defaults if storage was empty, trailing zeros are not required
         if (presetList.isEmpty()) {
-            presetList.add(ApduPreset("new", ""))
-            presetList.add(ApduPreset("select_helloApplet", "00A404000AF06B6F6C65710000000100"))
-            presetList.add(ApduPreset("hello", "0010000000"))
-            presetList.add(ApduPreset("cmd_ping", "001100000470696e67"))
-            presetList.add(ApduPreset("cmd_free", "001100000466726565"))
-            presetList.add(ApduPreset("counter_add", "0012010000"))
-            presetList.add(ApduPreset("counter_sub", "0012020000"))
-            presetList.add(ApduPreset("counter_show", "0012030000"))
-            presetList.add(ApduPreset("counter_reset", "0012040000"))
-            presetList.add(ApduPreset("echo", "00130000145468697320697320612074657874206563686f21"))
+            presetList.add(ApduPreset("- custom -", ""))
+            // select the applet I made called helloCard / helloApplet .koleq...1
+            presetList.add(ApduPreset("select_helloApplet", "00A404000AF06B6F6C657100000001")) // full command
+            // INS 0x10 hello
+            presetList.add(ApduPreset("hello", "0010")) // full command
+            // INS 0x11 ping or free
+            presetList.add(ApduPreset("cmd_ping", "cmd=ping")) // interpreted command
+            presetList.add(ApduPreset("cmd_free", "cmd=free")) // interpreted command
+            // INS 0x12 add, sub, show, reset
+            presetList.add(ApduPreset("counter_add=", "counter_add=")) // customizable command
+            presetList.add(ApduPreset("counter_sub=", "counter_sub=")) //customizable command
+            presetList.add(ApduPreset("counter_show", "001203")) // full command
+            presetList.add(ApduPreset("counter_reset", "001204")) // full command
+            // INS 0x13 echo
+            presetList.add(ApduPreset("echo=\"\"", "echo=\"\"")) // also placeholder but suggesting you to use spaces
         }
     }
 
